@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yydatastore web example</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  button { margin: .25rem .25rem .25rem 0; }
+  pre { background: #f4f4f4; padding: .75rem; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>yydatastore (wasm)</h1>
+<p id="who">signed out</p>
+<button id="signin">Sign in with Google</button>
+<button id="signout">Sign out</button>
+<button id="save">Save my doc</button>
+<button id="load">Load my doc</button>
+<pre id="out"></pre>
+
+<script type="module">
+  // Build:  cargo build --release --target wasm32-unknown-unknown --features js
+  //         wasm-bindgen --target web --out-dir examples/web/pkg target/wasm32-unknown-unknown/release/yydatastore.wasm
+  // Serve:  (cd examples/web && python3 -m http.server 8000)  → http://localhost:8000
+  import init, { FirebaseClient } from "./pkg/yydatastore.js";
+  await init();
+
+  // ↓ Replace with your Firebase web config and a "Web application" OAuth client ID.
+  const fb = new FirebaseClient({ projectId: "YOUR_PROJECT_ID", apiKey: "YOUR_WEB_API_KEY" });
+  const oauth = {
+    clientId: "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    redirectUri: location.origin + "/oauth-callback.html",
+  };
+  const KEY = "yydatastore.session";
+
+  const $ = (id) => document.getElementById(id);
+  const show = (v) => ($("out").textContent = typeof v === "string" ? v : JSON.stringify(v, null, 2));
+  const refresh = () => {
+    const u = fb.currentUser();
+    $("who").textContent = u ? `${u.displayName ?? ""} <${u.email}> uid=${u.uid}` : "signed out";
+  };
+
+  fb.loadSessionFromLocalStorage(KEY);
+  refresh();
+
+  const run = (f) => async () => { try { show(await f() ?? "ok"); } catch (e) { show(`${e.code ?? ""} ${e.message}`); } refresh(); };
+  $("signin").onclick = run(async () => {
+    const user = await fb.signInWithGooglePopup(oauth);
+    fb.saveSessionToLocalStorage(KEY);
+    return user;
+  });
+  $("signout").onclick = run(async () => { fb.signOut(); fb.saveSessionToLocalStorage(KEY); });
+  $("save").onclick = run(async () => {
+    const uid = fb.currentUser().uid;
+    await fb.mergeDoc(`users/${uid}`, { lastVisit: new Date().toISOString(), ua: navigator.userAgent });
+    return fb.getDoc(`users/${uid}`);
+  });
+  $("load").onclick = run(() => fb.getDoc(`users/${fb.currentUser().uid}`));
+</script>
+</body>
+</html>
